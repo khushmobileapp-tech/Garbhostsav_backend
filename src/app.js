@@ -9,9 +9,7 @@ import { sendSuccess } from "./utils/apiResponse.js";
 export const app = express();
 
 app.use(express.json());
-app.use(cors({
-  origin: "*", // temporary (safe for now)
-}));
+app.use(cors());
 
 app.get("/health", (_req, res) =>
   sendSuccess(res, {
