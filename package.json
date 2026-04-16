@@ -1,0 +1,19 @@
+{
+  "name": "garbhotsav-prisma-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:pull": "prisma db pull",
+    "db:generate": "prisma generate",
+    "studio": "prisma studio",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.0",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "prisma": "^6.19.0",
+    "zod": "^4.3.6"
+  }
+}
