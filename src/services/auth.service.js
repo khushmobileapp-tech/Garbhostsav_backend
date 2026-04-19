@@ -18,8 +18,11 @@ function buildOtpResponse(identifier, otp) {
   const data = {
     identifier,
     expires_at: otp.expires_at,
-    otp_preview: otp.otp_code
   };
+
+  if (process.env.NODE_ENV !== "production") {
+    data.otp_preview = otp.otp_code;
+  }
 
   return data;
 }

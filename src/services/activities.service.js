@@ -1,21 +1,34 @@
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/appError.js";
+import { normalizeActivityRecord } from "../utils/dailyActivityPlanner.js";
+
+function transformActivity(record) {
+  return normalizeActivityRecord(record);
+}
 
 export const activitiesService = {
   async create(payload) {
-    return prisma.activities.create({
+    const record = await prisma.activities.create({
       data: payload,
+      include: {
+        activity_content: true,
+        activity_rules: true,
+      },
     });
+
+    return transformActivity(record);
   },
 
   async findAll() {
-    return prisma.activities.findMany({
+    const records = await prisma.activities.findMany({
       include: {
         activity_content: true,
         activity_rules: true,
       },
       orderBy: { id: "asc" },
     });
+
+    return records.map(transformActivity);
   },
 
   async findById(id) {
@@ -31,16 +44,22 @@ export const activitiesService = {
       throw new AppError("Activity not found", 404);
     }
 
-    return record;
+    return transformActivity(record);
   },
 
   async update(id, payload) {
     await this.findById(id);
 
-    return prisma.activities.update({
+    const record = await prisma.activities.update({
       where: { id },
       data: payload,
+      include: {
+        activity_content: true,
+        activity_rules: true,
+      },
     });
+
+    return transformActivity(record);
   },
 
   async remove(id) {

@@ -490,5 +490,3 @@ Delete response:
 - Event registration status is user-specific.
 - Admin APIs use `admin_users` and a separate admin token.
 - I fixed a shared CRUD update bug so updates no longer regenerate record IDs.
-#   G a r b h o s t s a v _ b a c k e n d  
- 

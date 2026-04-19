@@ -1,5 +1,4 @@
 import "dotenv/config.js";
-import cors from "cors";
 import express from "express";
 import { apiRouter } from "./routes/index.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
@@ -9,7 +8,6 @@ import { sendSuccess } from "./utils/apiResponse.js";
 export const app = express();
 
 app.use(express.json());
-app.use(cors());
 
 app.get("/health", (_req, res) =>
   sendSuccess(res, {

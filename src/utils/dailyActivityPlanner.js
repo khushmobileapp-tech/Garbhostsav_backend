@@ -59,10 +59,8 @@ function guessType(activity, preferredType) {
 
 function resolveContentEntries(entries = [], dayNumber, activityType) {
   const sortedEntries = [...entries].sort((left, right) => {
-    const leftPriority =
-      left.day_number === dayNumber ? 0 : left.day_number == null ? 1 : 2;
-    const rightPriority =
-      right.day_number === dayNumber ? 0 : right.day_number == null ? 1 : 2;
+    const leftPriority = getEntryPriority(left, dayNumber);
+    const rightPriority = getEntryPriority(right, dayNumber);
 
     if (leftPriority !== rightPriority) {
       return leftPriority - rightPriority;
@@ -96,9 +94,149 @@ function resolveContentEntries(entries = [], dayNumber, activityType) {
   };
 }
 
+function getEntryPriority(entry, dayNumber) {
+  if (entry.day_number === dayNumber) {
+    return 0;
+  }
+
+  if (entry.day_number == null) {
+    return 1;
+  }
+
+  if (entry.day_number < dayNumber) {
+    return 2 + (dayNumber - entry.day_number);
+  }
+
+  return 1000 + (entry.day_number - dayNumber);
+}
+
+function pickPrimaryEntriesByType(entries = []) {
+  const sortedEntries = [...entries].sort((left, right) => {
+    const leftIsPrimary = left.is_primary !== false ? 0 : 1;
+    const rightIsPrimary = right.is_primary !== false ? 0 : 1;
+
+    if (leftIsPrimary !== rightIsPrimary) {
+      return leftIsPrimary - rightIsPrimary;
+    }
+
+    return (left.id ?? 0) - (right.id ?? 0);
+  });
+  const chosenByType = new Map();
+
+  for (const entry of sortedEntries) {
+    if (!chosenByType.has(entry.type)) {
+      chosenByType.set(entry.type, entry);
+    }
+  }
+
+  return [...chosenByType.values()];
+}
+
+function mergeWithGlobalFillers(baseEntries = [], globalEntries = []) {
+  const chosen = [...baseEntries];
+  const chosenTypes = new Set(baseEntries.map((entry) => entry.type));
+
+  for (const entry of pickPrimaryEntriesByType(globalEntries)) {
+    if (chosenTypes.has(entry.type)) {
+      continue;
+    }
+
+    chosen.push(entry);
+    chosenTypes.add(entry.type);
+  }
+
+  return chosen;
+}
+
+function selectRelevantContentEntries(entries = [], dayNumber) {
+  const globalEntries = entries.filter((entry) => entry.day_number == null);
+  const datedEntries = entries.filter((entry) => entry.day_number != null);
+
+  const exactEntries = datedEntries.filter((entry) => entry.day_number === dayNumber);
+  if (exactEntries.length > 0) {
+    return mergeWithGlobalFillers(exactEntries, globalEntries);
+  }
+
+  if (datedEntries.length === 0) {
+    return pickPrimaryEntriesByType(globalEntries);
+  }
+
+  const pastDays = [...new Set(datedEntries.map((entry) => entry.day_number).filter((value) => value <= dayNumber))].sort(
+    (left, right) => right - left,
+  );
+  const futureDays = [...new Set(datedEntries.map((entry) => entry.day_number).filter((value) => value > dayNumber))].sort(
+    (left, right) => left - right,
+  );
+
+  const fallbackDay = pastDays[0] ?? futureDays[0];
+
+  return [
+    ...mergeWithGlobalFillers(
+      datedEntries.filter((entry) => entry.day_number === fallbackDay),
+      globalEntries,
+    ),
+  ];
+}
+
+function scoreEntrySet(entries = [], dayNumber) {
+  const exactExists = entries.some((entry) => entry.day_number === dayNumber);
+  if (exactExists) {
+    return 0;
+  }
+
+  const datedDays = [...new Set(entries.map((entry) => entry.day_number).filter((value) => value != null))];
+  if (datedDays.length === 0) {
+    return 100000;
+  }
+
+  const nearestPast = datedDays.filter((value) => value <= dayNumber).sort((left, right) => right - left)[0];
+  if (nearestPast != null) {
+    return dayNumber - nearestPast + 1;
+  }
+
+  const nearestFuture = datedDays.sort((left, right) => left - right)[0];
+  return 50000 + (nearestFuture - dayNumber);
+}
+
+function selectBestFallbackEntries(entries = [], dayNumber) {
+  if (entries.length === 0) {
+    return [];
+  }
+
+  const grouped = new Map();
+  for (const entry of entries) {
+    const key = entry.activity_id;
+    if (!grouped.has(key)) {
+      grouped.set(key, []);
+    }
+    grouped.get(key).push(entry);
+  }
+
+  const candidates = [...grouped.values()].map((groupEntries) => ({
+    activity_id: groupEntries[0].activity_id,
+    score: scoreEntrySet(groupEntries, dayNumber),
+    entries: groupEntries,
+  }));
+
+  candidates.sort((left, right) => {
+    if (left.score !== right.score) {
+      return left.score - right.score;
+    }
+
+    return left.activity_id - right.activity_id;
+  });
+
+  return selectRelevantContentEntries(candidates[0]?.entries || [], dayNumber);
+}
+
 function normalizeRuleActivity(rule, dayNumber) {
+  const ownEntries = selectRelevantContentEntries(rule.activities.activity_content || [], dayNumber);
+  const fallbackEntries =
+    ownEntries.length > 0
+      ? []
+      : selectBestFallbackEntries(rule.activities.fallback_activity_content || [], dayNumber);
   const content = resolveContentEntries(
-    rule.activities.activity_content || [],
+    ownEntries.length > 0 ? ownEntries : fallbackEntries,
     dayNumber,
     rule.activities.activity_type,
   );
@@ -121,6 +259,39 @@ function normalizeRuleActivity(rule, dayNumber) {
     bg_color: visual.bg_color,
     sub_activities: content.sub_activities,
     order_index: rule.order_index ?? 0,
+  };
+}
+
+export function normalizeActivityRecord(record, { dayNumber = null, session = null, orderIndex = 0 } = {}) {
+  const content = resolveContentEntries(
+    record.activity_content || [],
+    dayNumber,
+    record.activity_type,
+  );
+  const type = guessType(
+    record,
+    content.activity_type ||
+      (content.video ? "video" : content.audio ? "audio" : content.text ? "text" : undefined),
+  );
+  const visual = palette[type] || palette.generic;
+
+  return {
+    id: String(record.id),
+    type,
+    title: record.title,
+    content: content.text || record.description || null,
+    media_url: content.audio,
+    video_url: content.video,
+    emoji: visual.emoji,
+    color: visual.color,
+    bg_color: visual.bg_color,
+    sub_activities: content.sub_activities,
+    order_index: orderIndex,
+    session,
+    activity_content: record.activity_content || [],
+    activity_rules: record.activity_rules || [],
+    created_at: record.created_at ?? null,
+    updated_at: record.updated_at ?? null,
   };
 }
 
@@ -222,7 +393,7 @@ export function normalizeAdminDayFromRules(dayNumber, rules, source = "rule_base
 }
 
 export async function fetchRulesForDay(dayNumber, { exactOnly = false } = {}) {
-  return prisma.activity_rules.findMany({
+  const rules = await prisma.activity_rules.findMany({
     where: exactOnly
       ? {
           start_day: dayNumber,
@@ -250,6 +421,61 @@ export async function fetchRulesForDay(dayNumber, { exactOnly = false } = {}) {
       },
     },
   });
+
+  const rulesMissingContent = rules.filter(
+    (rule) => (rule.activities.activity_content || []).length === 0,
+  );
+
+  if (rulesMissingContent.length === 0) {
+    return rules;
+  }
+
+  const fallbackTitles = [
+    ...new Set(rulesMissingContent.map((rule) => rule.activities.title).filter(Boolean)),
+  ];
+
+  const fallbackContentRows = await prisma.activity_content.findMany({
+    where: {
+      activities: {
+        title: {
+          in: fallbackTitles,
+        },
+      },
+    },
+    include: {
+      activities: {
+        select: {
+          id: true,
+          title: true,
+        },
+      },
+    },
+    orderBy: [{ day_number: "asc" }, { id: "asc" }],
+  });
+
+  const fallbackByTitle = new Map();
+  for (const row of fallbackContentRows) {
+    const title = row.activities?.title;
+    if (!title) {
+      continue;
+    }
+
+    if (!fallbackByTitle.has(title)) {
+      fallbackByTitle.set(title, []);
+    }
+
+    fallbackByTitle.get(title).push(row);
+  }
+
+  for (const rule of rules) {
+    if ((rule.activities.activity_content || []).length > 0) {
+      continue;
+    }
+
+    rule.activities.fallback_activity_content = fallbackByTitle.get(rule.activities.title) || [];
+  }
+
+  return rules;
 }
 
 export async function fetchResolvedDay(dayNumber, completions = []) {
