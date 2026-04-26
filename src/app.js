@@ -13,8 +13,6 @@ app.use(cors({
   origin: "*"
 }));
 
-app.options("*", cors()); // ✅ handles preflight
-
 app.use(express.json());
 
 app.get("/health", (_req, res) =>
