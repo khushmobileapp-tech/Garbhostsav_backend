@@ -1,8 +1,8 @@
+import cors from "cors";
 import { app } from "./app.js";
 import { env } from "./config/env.js";
 import { startNotificationScheduler, stopNotificationScheduler } from "./jobs/notificationScheduler.js";
 import { prisma } from "./lib/prisma.js";
-const cors = require("cors");
 
 app.use(cors())
 
