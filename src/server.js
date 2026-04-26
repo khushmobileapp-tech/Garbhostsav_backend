@@ -2,6 +2,9 @@ import { app } from "./app.js";
 import { env } from "./config/env.js";
 import { startNotificationScheduler, stopNotificationScheduler } from "./jobs/notificationScheduler.js";
 import { prisma } from "./lib/prisma.js";
+const cors = require("cors");
+
+app.use(cors())
 
 const server = app.listen(env.port, () => {
   console.log(`Server running on port ${env.port}`);
